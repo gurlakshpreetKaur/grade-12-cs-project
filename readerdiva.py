@@ -1,4 +1,6 @@
+import mysql.connector
 from datetime import date
+from contextlib import contextmanager
 #library management system
 
 BOOKS_STRUCTURE = { #structure of books table
@@ -9,14 +11,6 @@ BOOKS_STRUCTURE = { #structure of books table
     "year_of_publishing": int, # int
     "date_of_entry": str, #date
     }
-
-def presentable(key, case="upper"):
-    '''Takes a dictionary key and makes it presentable by replacing the _ with spaces and changing case'''
-    if case=="lower":
-        return " ".join(key.split("_")).lower()
-    elif case=="title":
-        return " ".join(key.split("_")).title()
-    return " ".join(key.split("_")).upper()
 
 #structure of members table
 MEMBERS_STRUCTURE = {
@@ -53,10 +47,50 @@ QUERY_OPERS_STR = {**QUERY_OPERS,
     (len(QUERY_OPERS)+2): ("DOES NOT PATTERN MATCH (NOT LIKE)", "NOT LIKE")
     }
 
+CONFIG = { #configuration for sql connection
+    "host":"localhost",
+    "user":"root",
+    "passwd":"root",
+    "database":"library"
+    }
+#@contextmanager #this is a decorator. it turns the conn function into a context manager, so conn can be used with the 'with' statement. think: async functions in js using then function
+def execute(statement, params=None):
+    #'''Context manager for setting up an SQL connection and yielding the cursor object'''
+    #already created a library database in SQL using CREATE DATABASE library
+    conn = None
+    try:
+        conn = mysql.connector.connect(**CONFIG)
+
+        if conn.is_connected():
+            cursor = conn.cursor(dictionary=True) #formats the returned values as list of dictionary
+            #yield cursor #this is the object that will be used in the 'with' statement
+            cursor.execute(statement, params)
+            if statement.startswith("SELECT"): #statement is select type
+                return cursor.fetchall() #return the dataset
+            else:
+                conn.commit()
+    except mysql.connector.Error as e:
+        print(f"!!!SQL ERROR OCCURED: {e}!!!")
+    finally:
+        if conn is not None and conn.is_connected():
+            conn.close() #safely closing the connection each time
+
+def presentable(key, case="upper"):
+    '''Takes a dictionary key and makes it presentable by replacing the _ with spaces and changing case'''
+    if case=="lower":
+        return " ".join(key.split("_")).lower()
+    elif case=="title":
+        return " ".join(key.split("_")).title()
+    return " ".join(key.split("_")).upper()
+
 def view_all_books():
     '''Prints the entire list of books in the library.'''
-    statement = "SELECT * FROM books"
-    print(statement)
+    data = execute("SELECT * FROM books")
+    if len(data) == 0:
+        print("NO BOOKS' DATA STORED YET")
+        return
+    for i in range(len(data)):
+        print(data[i])
     
 def view_books_with_query():
     '''Inputs a key and value, and uses that to query the database and shows specific books'''
@@ -112,32 +146,42 @@ def view_books_with_query():
         else:
             query += " AND "
     print()
-    statement = "SELECT * FROM books WHERE " + query
-    print(statement)
+    
+    statement = "SELECT * FROM books WHERE %s"
+    data = execute(statement, (query,))
+    print(data)
+    for i in range(len(data)):
+        print(data)
     
 def view_book_with_isbn():
     '''Inputs an ISBN and uses it to show the book's data'''
     isbn = input("Enter the ISBN: ")
-    statement = f'SELECT * FROM books WHERE isbn="{isbn}";'
-    print(statement)
+    statement = "SELECT * FROM books WHERE isbn=%s;"
+    execute(statement, (isbn,))
+    #print(statement)
 
 def add_book():
     '''Inputs data related to the book and adds it to the database'''
     book_data = {
-        "date_of_entry":  f'"{date.today().isoformat()}"'
+        "date_of_entry":  date.today().isoformat()
         }
     for key in BOOKS_STRUCTURE:
         if key in book_data:
             continue
         typecast = BOOKS_STRUCTURE.get(key)
-        is_str = typecast == str
-        value = str(typecast(input("Enter the " + presentable(key) + ":"))) #typecast ensures that data is in correct format
+        #is_str = typecast == str
+        value = typecast(input("Enter the " + presentable(key) + ":")) #typecast ensures that data is in correct format
         #then we convert it to string in order to obtain the correct format for sql
-        book_data[key] = value if not is_str else f'"{value}"'
-    statement = "INSERT INTO books "
+        book_data[key] = value
+    
     columns = "(" + ",".join(list(book_data.keys())) + ")"
-    values = "(" + ",".join(list(book_data.values())) + ")"
-    statement = statement + columns + " VALUES " + values + ";"
+    values_placeholder=", ".join(["%s"] * len(book_data))
+    
+    statement = f"INSERT INTO books {columns} VALUES ({values_placeholder});" 
+    
+    values = tuple(book_data.values())
+    execute(statement, values)
+    
     print(statement)
     
 def remove_book_with_isbn():
@@ -354,7 +398,7 @@ COMMANDS = {
     14: view_members_with_query
     }
 
-def main():
+def menu():
     print("+-------------------------------------------------------------------------+")
     print("|                                                                         |")
     print("|-----------------------LIBRARY MANAGEMENT SYSTEM-------------------------|")
@@ -386,11 +430,14 @@ def main():
     else:
         print("Invalid choice. Please enter a number from the options given above")
 
-while True:
-    br = main()
-    if br == 1:
-        print("+-------------------------------------------------------------------------+")
-        print("|                      *Programme execution over*                         |")
-        print("|                       ~~Thank you for using~~                           |")
-        print("+-------------------------------------------------------------------------+")
-        break
+def main():
+    while True:
+        br = menu()
+        if br == 1:
+            print("+-------------------------------------------------------------------------+")
+            print("|                      *Programme execution over*                         |")
+            print("|                       ~~Thank you for using~~                           |")
+            print("+-------------------------------------------------------------------------+")
+            break
+
+main()
